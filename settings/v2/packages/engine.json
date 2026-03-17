@@ -1,0 +1,6 @@
+{
+  "modules": {
+    "physics": "cannon",
+    "includeModules": ["2d-spine","2d-particle","2d-tilemap","audio","video","webview"]
+  }
+}
