@@ -14,6 +14,7 @@ export enum GameEvent {
   PLOT_UPDATED       = 'plot_updated',
   STORAGE_CHANGED    = 'storage_changed',
   SENSE_RESULT       = 'sense_result',
+  SENSE_LEVEL_UP     = 'sense_level_up',    // 六识升级事件 { sense, level }
   OFFLINE_APPLIED    = 'offline_applied',
   GAME_SAVED         = 'game_saved',
   GAME_LOADED        = 'game_loaded',

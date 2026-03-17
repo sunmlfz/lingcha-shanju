@@ -11,6 +11,22 @@ const { ccclass, property } = _decorator;
 
 // ─────────────────── 数据接口定义 ───────────────────
 
+/** 单个六识属性 */
+export interface SenseAttribute {
+  level: number;    // 当前等级（1-10）
+  exp: number;      // 当前经验
+}
+
+/** 六识数据 */
+export interface SixSensesData {
+  vision:        SenseAttribute; // 视觉
+  hearing:       SenseAttribute; // 听觉
+  smell:         SenseAttribute; // 嗅觉
+  taste:         SenseAttribute; // 味觉
+  touch:         SenseAttribute; // 触觉
+  consciousness: SenseAttribute; // 意识
+}
+
 export interface PlayerData {
   gold: number;            // 金叶数量
   enlightenment: number;   // 悟道值
@@ -18,6 +34,7 @@ export interface PlayerData {
   unlockedTeas: string[];  // 已解锁茶种
   totalBrewCount: number;  // 总炼茶次数
   totalDrinkCount: number; // 总品茶次数
+  sixSenses: SixSensesData; // 六识属性（核心成长体系）
 }
 
 export interface PlotData {
@@ -107,6 +124,14 @@ function createDefaultGameData(): GameData {
       unlockedTeas: ['green_tea', 'white_tea'],
       totalBrewCount: 0,
       totalDrinkCount: 0,
+      sixSenses: {
+        vision:        { level: 1, exp: 0 },
+        hearing:       { level: 1, exp: 0 },
+        smell:         { level: 1, exp: 0 },
+        taste:         { level: 1, exp: 0 },
+        touch:         { level: 1, exp: 0 },
+        consciousness: { level: 1, exp: 0 },
+      },
     },
     garden: {
       plots,
@@ -270,6 +295,39 @@ export class GameDataManager extends Component {
       return true;
     }
     return false;
+  }
+
+  /**
+   * 为某项六识增加经验，自动处理升级
+   * @param senseKey 六识键名
+   * @param expGain  获得的经验值
+   * @returns 是否触发了升级
+   */
+  addSenseExp(senseKey: keyof SixSensesData, expGain: number): boolean {
+    const sense = this._data.player.sixSenses[senseKey];
+    if (sense.level >= 10) return false; // 满级封顶
+
+    sense.exp += expGain;
+
+    // 动态 import 避免循环依赖，直接内联升级公式
+    const expToNext = Math.floor(20 * Math.pow(1.6, sense.level - 1));
+
+    if (sense.exp >= expToNext) {
+      sense.exp -= expToNext;
+      sense.level = Math.min(10, sense.level + 1);
+      EventBus.emit(GameEvent.SENSE_LEVEL_UP, { sense: senseKey, level: sense.level });
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * 获取六识总等级之和（用于 UI 展示）
+   */
+  getTotalSenseLevel(): number {
+    const s = this._data.player.sixSenses;
+    return s.vision.level + s.hearing.level + s.smell.level
+         + s.taste.level + s.touch.level + s.consciousness.level;
   }
 
   /**

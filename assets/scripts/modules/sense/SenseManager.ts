@@ -5,17 +5,35 @@
 
 import { _decorator, Component, director } from 'cc';
 import { EventBus, GameEvent } from '../../core/EventBus';
-import { GameDataManager } from '../../core/GameDataManager';
+import { GameDataManager, SixSensesData } from '../../core/GameDataManager';
 import { getTeaConfig } from '../garden/TeaConfig';
+import {
+  TEA_SENSE_AFFINITY,
+  extractTeaTypeFromItemId,
+  calcSenseBonus,
+  calcSenseExpGain,
+  SENSE_NAMES,
+  SenseKey,
+} from './SixSensesConfig';
 
 const { ccclass, property } = _decorator;
 
+export interface SenseLevelUpInfo {
+  sense: SenseKey;
+  senseName: string;
+  newLevel: number;
+}
+
 export interface SenseResult {
-  enlightenmentGain: number;
+  enlightenmentGain: number;     // 最终悟道值（含六识加成）
+  baseEnlightenment: number;     // 品质加成后的基础悟道值（未含六识）
+  senseBonus: number;            // 六识加成系数（例：0.3 = +30%）
+  senseExpGains: Partial<Record<SenseKey, number>>; // 各六识经验获取情况
+  senseLevelUps: SenseLevelUpInfo[];  // 本次品茶触发的六识升级列表
   poem: string;
   teaName: string;
   qualityTier: string;
-  specialEffect?: string;   // 'inspiration_fragment' | 'npc_visit' | null
+  specialEffect?: string;        // 'inspiration_fragment' | 'npc_visit' | null
   inspirationGained?: boolean;
 }
 
@@ -107,26 +125,58 @@ export class SenseManager extends Component {
       storage.items.splice(storage.items.indexOf(item), 1);
     }
 
-    // 计算悟道值（品质倍率）
+    // ── 1. 品质倍率 ──
     const quality = item.quality ?? 0;
     const qualityMultipliers = [1, 1.5, 3.0];
     const qualityMultiplier = qualityMultipliers[quality] ?? 1;
 
-    // 尝试从 itemId 解析茶种以获取基础悟道值
-    const baseEnlightenment = this.getBaseEnlightenmentFromItem(item.name);
-    const enlightenmentGain = Math.round(baseEnlightenment * qualityMultiplier);
+    // ── 2. 基础悟道值（品质倍率已乘） ──
+    const rawBase = this.getBaseEnlightenmentFromItem(item.name);
+    const baseEnlightenment = Math.round(rawBase * qualityMultiplier);
 
-    // 获取意境诗句
+    // ── 3. 六识加成 ──
+    const teaType = extractTeaTypeFromItemId(itemId);
+    const affinities = TEA_SENSE_AFFINITY[teaType] ?? [];
+
+    // 构建当前六识等级 map
+    const sixSenses = gdm.player.sixSenses;
+    const senseLevels = {
+      vision:        sixSenses.vision.level,
+      hearing:       sixSenses.hearing.level,
+      smell:         sixSenses.smell.level,
+      taste:         sixSenses.taste.level,
+      touch:         sixSenses.touch.level,
+      consciousness: sixSenses.consciousness.level,
+    } as Record<SenseKey, number>;
+
+    const senseBonus = calcSenseBonus(affinities, senseLevels);
+    const enlightenmentGain = Math.round(baseEnlightenment * (1 + senseBonus));
+
+    // ── 4. 六识经验成长 ──
+    const senseExpGains = calcSenseExpGain(affinities, rawBase, qualityMultiplier);
+    const senseLevelUps: SenseLevelUpInfo[] = [];
+    for (const [key, exp] of Object.entries(senseExpGains) as [SenseKey, number][]) {
+      const leveledUp = gdm.addSenseExp(key, exp);
+      if (leveledUp) {
+        senseLevelUps.push({
+          sense: key,
+          senseName: SENSE_NAMES[key],
+          newLevel: gdm.player.sixSenses[key].level,
+        });
+      }
+    }
+
+    // ── 5. 意境诗句 ──
     const poem = this.getTeaPoem(itemId);
 
-    // 检查特殊效果
+    // ── 6. 特殊效果 ──
     const specialEffect = this.rollSpecialEffect(quality);
     let inspirationGained = false;
     if (specialEffect === 'inspiration_fragment') {
       inspirationGained = this.addInspirationFragment();
     }
 
-    // 更新悟道值
+    // ── 7. 更新悟道值 ──
     gdm.addEnlightenment(enlightenmentGain);
     gdm.player.totalDrinkCount++;
     gdm.checkLevelUp();
@@ -135,6 +185,10 @@ export class SenseManager extends Component {
 
     const result: SenseResult = {
       enlightenmentGain,
+      baseEnlightenment,
+      senseBonus,
+      senseExpGains,
+      senseLevelUps,
       poem,
       teaName: item.name,
       qualityTier: qualityNames[quality] ?? '普通',
